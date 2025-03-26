@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Manual Connect Chat</title>
+    <style>
+        /* CSS remains the same as the previous version */
+        :root {
+            --primary-bg: #f4f7f6; --secondary-bg: #ffffff; --accent-color: #007bff;
+            --text-color: #333; --border-color: #dcdcdc; --local-bubble-bg: #dcf8c6;
+            --remote-bubble-bg: #e8e8e8; --error-color: #dc3545; --success-color: #28a745;
+            --info-color: #6c757d; --warning-color: #ffc107;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; padding: 0; margin: 0; background-color: var(--primary-bg); color: var(--text-color); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .container { max-width: 800px; margin: 20px auto; padding: 20px; background-color: var(--secondary-bg); box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-radius: 8px; display: flex; flex-direction: column; flex-grow: 1; min-height: 0; }
+        header { border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 15px; text-align: center; }
+        header h1 { margin: 0 0 10px 0; color: var(--accent-color); }
+        #status { font-weight: bold; padding: 8px; border-radius: 4px; margin-bottom: 15px;}
+        .status-disconnected { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;}
+        .status-connecting { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;}
+        .status-connected { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;}
+        .status-info { background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb;}
+        #manual-connection { border: 1px dashed var(--accent-color); padding: 15px; border-radius: 5px; margin-bottom: 20px;}
+        #manual-connection h2 { margin-top: 0; color: var(--accent-color); text-align: center; }
+        .step { margin-bottom: 15px; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; }
+        .step strong { display: block; margin-bottom: 5px; }
+        .step button { margin-top: 5px;}
+        textarea { width: 95%; margin-top: 5px; font-family: monospace; font-size: 0.9em; }
+        .sdp-output-area { position: relative; }
+        .copy-btn { position: absolute; top: 8px; right: 8px; padding: 3px 8px; font-size: 0.8em; background-color: var(--info-color); }
+        #chat-area { flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; display: none; }
+        #chatbox { flex-grow: 1; border: 1px solid var(--border-color); overflow-y: auto; margin-bottom: 15px; padding: 15px; background-color: #f9f9f9; border-radius: 4px; scroll-behavior: smooth; }
+        .message { margin-bottom: 12px; padding: 8px 12px; border-radius: 10px; max-width: 75%; word-wrap: break-word; position: relative; clear: both; transition: background-color 0.3s ease; }
+        .local-message { background-color: var(--local-bubble-bg); float: right; margin-left: auto; border-bottom-right-radius: 0; }
+        .remote-message { background-color: var(--remote-bubble-bg); float: left; margin-right: auto; border-bottom-left-radius: 0; }
+        .system-message { font-style: italic; color: var(--info-color); text-align: center; clear: both; font-size: 0.9em; margin: 10px 0; }
+        .message .content { display: block; }
+        .message .meta { font-size: 0.75em; color: #777; display: block; margin-top: 4px; text-align: right; }
+        .message.interim .content { opacity: 0.6; font-style: italic; }
+        #input-area { display: flex; gap: 10px; border-top: 1px solid var(--border-color); padding-top: 15px; align-items: center; }
+        #textInput { flex-grow: 1; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 4px; }
+        button { padding: 8px 15px; background-color: var(--accent-color); color: white; border: none; border-radius: 4px; cursor: pointer; transition: background-color 0.2s ease; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        button:hover:not(:disabled) { background-color: #0056b3; }
+        #speech-controls button { padding: 8px; }
+        #speech-status { margin-left: 10px; font-size: 0.9em; color: var(--info-color); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>P2P Manual Connect Chat</h1>
+            <div id="status" class="status-disconnected">Status: Disconnected. Follow steps below.</div>
+        </header>
+        <div id="manual-connection">
+             <h2>Manual Connection Steps</h2>
+             <p><strong>Instructions:</strong> Both users open this file. Decide who is User 1 and User 2. Follow the steps precisely.</p>
+             <div class="step">
+                 <strong>Step 1 (User 1 ONLY): Create Offer</strong>
+                 <button id="createOfferBtn">Create Offer</button>
+                 <div class="sdp-output-area"> <textarea id="offerSdpOutput" rows="5" readonly placeholder="Offer SDP will appear here..."></textarea> <button class="copy-btn" onclick="copyToClipboard('offerSdpOutput')">Copy</button> </div>
+                 <small>Click 'Create Offer', wait for text to appear, copy it, and send it to User 2 (via email, chat, etc.).</small>
+             </div>
+             <div class="step">
+                 <strong>Step 2 (User 2 ONLY): Paste Offer & Create Answer</strong>
+                 <textarea id="offerSdpInput" rows="5" placeholder="Paste User 1's Offer SDP here..."></textarea> <button id="createAnswerBtn">Use Offer & Create Answer</button>
+                 <div class="sdp-output-area"> <textarea id="answerSdpOutput" rows="5" readonly placeholder="Answer SDP will appear here..."></textarea> <button class="copy-btn" onclick="copyToClipboard('answerSdpOutput')">Copy</button> </div>
+                 <small>Paste User 1's offer above, click 'Use Offer & Create Answer', wait for text, copy the *Answer* SDP, and send it back to User 1.</small>
+             </div>
+              <div class="step">
+                 <strong>Step 3 (User 1 ONLY): Paste Answer</strong>
+                 <textarea id="answerSdpInput" rows="5" placeholder="Paste User 2's Answer SDP here..."></textarea> <button id="setAnswerBtn">Use Answer & Connect</button>
+                 <small>Paste User 2's answer above and click 'Use Answer & Connect'.</small>
+             </div>
+        </div>
+        <div id="chat-area">
+            <div id="chatbox"></div>
+            <div id="input-area">
+                <input type="text" id="textInput" placeholder="Type a message..." disabled> <button id="sendTextBtn" disabled>Send</button>
+                <div id="speech-controls"> <button id="startSpeechBtn" disabled>🎤 Start</button> <button id="stopSpeechBtn" disabled>⏹ Stop</button> <span id="speech-status">Speech inactive.</span> </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Config & Globals ---
+        // (Same as before)
+        const LOCAL_COLOR_CLASS = 'local-message'; const REMOTE_COLOR_CLASS = 'remote-message'; const SYSTEM_COLOR_CLASS = 'system-message'; const STUN_SERVER = 'stun:stun.l.google.com:19302'; const MESSAGE_SEPARATOR = '<br>';
+        let peerConnection; let dataChannel; let speechRecognition; let isRecognizing = false; const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition; let iceCandidatesQueue = []; let currentLocalSpeechBubble = null; let currentRemoteSpeechBubble = null;
+
+        // --- DOM Elements ---
+        // (Same as before)
+        const statusDiv = document.getElementById('status'); const createOfferBtn = document.getElementById('createOfferBtn'); const offerSdpOutput = document.getElementById('offerSdpOutput'); const offerSdpInput = document.getElementById('offerSdpInput'); const createAnswerBtn = document.getElementById('createAnswerBtn'); const answerSdpOutput = document.getElementById('answerSdpOutput'); const answerSdpInput = document.getElementById('answerSdpInput'); const setAnswerBtn = document.getElementById('setAnswerBtn'); const manualConnectionDiv = document.getElementById('manual-connection'); const chatAreaDiv = document.getElementById('chat-area'); const chatbox = document.getElementById('chatbox'); const textInput = document.getElementById('textInput'); const sendTextBtn = document.getElementById('sendTextBtn'); const startSpeechBtn = document.getElementById('startSpeechBtn'); const stopSpeechBtn = document.getElementById('stopSpeechBtn'); const speechStatusDiv = document.getElementById('speech-status');
+
+        // --- Initialization & Event Listeners ---
+        // (Same as before)
+        window.onload = () => { checkSupport(); if (SpeechRecognition) { initSpeechRecognition(); } enableChat(false); setStatus('Disconnected. Follow steps below.', 'status-disconnected'); }; createOfferBtn.onclick = createOfferFlow; createAnswerBtn.onclick = createAnswerFlow; setAnswerBtn.onclick = setAnswerFlow; textInput.onkeydown = (e) => { if (e.key === 'Enter' && !sendTextBtn.disabled) sendTextMessage(); }; sendTextBtn.onclick = sendTextMessage; startSpeechBtn.onclick = startSpeech; stopSpeechBtn.onclick = stopSpeech;
+
+        // --- Feature Support Check & Clipboard ---
+        // (Same as before)
+        function checkSupport() { /* ... same ... */ let supported = true; if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { displaySystemMessage("Error: getUserMedia (microphone access) is not supported."); supported = false; } if (!window.RTCPeerConnection) { displaySystemMessage("Error: WebRTC is not supported in this browser."); supported = false; } if (!SpeechRecognition) { speechStatusDiv.textContent = "Speech Recognition not supported."; startSpeechBtn.disabled = true; stopSpeechBtn.disabled = true; } if (!supported) { setStatus('Browser not fully supported!', 'status-disconnected'); createOfferBtn.disabled = true; createAnswerBtn.disabled = true; setAnswerBtn.disabled = true; } }
+        function copyToClipboard(elementId) { /* ... same ... */ const textArea = document.getElementById(elementId); if (!textArea.value) return; textArea.select(); textArea.setSelectionRange(0, 99999); try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(textArea.value).then(() => { displaySystemMessage('Copied to clipboard!'); }).catch(err => { console.error('Async Copy failed: ', err); fallbackCopy(textArea); }); } else { fallbackCopy(textArea); } } catch (err) { console.error('General Copy failed: ', err); displaySystemMessage('Copy failed. Please copy manually.'); } window.getSelection().removeAllRanges(); }
+        function fallbackCopy(textAreaElement) { /* ... same ... */ try { const successful = document.execCommand('copy'); if (successful) { displaySystemMessage('Copied to clipboard (fallback)!'); } else { displaySystemMessage('Copy failed (fallback). Please copy manually.'); console.error('Fallback copy command failed'); } } catch (err) { displaySystemMessage('Copy failed (fallback exception). Please copy manually.'); console.error('Fallback copy exception: ', err); } }
+
+        // --- WebRTC Connection Flow Functions ---
+        // (createOfferFlow, createAnswerFlow, setAnswerFlow - Same as previous correct version)
+        async function createOfferFlow() { /* ... same ... */ setStatus('Creating Offer...', 'status-connecting'); createOfferBtn.disabled = true; createAnswerBtn.disabled = true; setAnswerBtn.disabled = true; offerSdpOutput.value = 'Generating... Please wait for ICE candidates.'; createPeerConnection(true); try { const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer); console.log('Offer created and local description set.'); peerConnection.onicegatheringstatechange = () => { if (peerConnection.iceGatheringState === 'complete') { console.log('ICE Gathering Complete (Offer).'); offerSdpOutput.value = JSON.stringify(peerConnection.localDescription); setStatus('Offer Created. Copy and send to User 2.', 'status-info'); setAnswerBtn.disabled = false; } }; } catch (error) { console.error("Error creating offer:", error); setStatus('Error creating offer. Check console.', 'status-disconnected'); resetConnection(); } }
+        async function createAnswerFlow() { /* ... same ... */ const offerData = offerSdpInput.value.trim(); if (!offerData) { alert("Paste User 1's Offer SDP first!"); return; } setStatus('Processing Offer & Creating Answer...', 'status-connecting'); createOfferBtn.disabled = true; createAnswerBtn.disabled = true; setAnswerBtn.disabled = true; answerSdpOutput.value = 'Generating... Please wait for ICE candidates.'; createPeerConnection(false); try { const offer = JSON.parse(offerData); await peerConnection.setRemoteDescription(new RTCSessionDescription(offer)); console.log("Remote description (offer) set."); const answer = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(answer); console.log("Answer created and local description set."); console.log("Processing queued ICE candidates after setting offer:", iceCandidatesQueue.length); while(iceCandidatesQueue.length > 0) { const candidate = iceCandidatesQueue.shift(); try { if (candidate) { await peerConnection.addIceCandidate(candidate); console.log("Queued ICE Candidate Added"); } } catch (error) { if (candidate) console.warn("Error adding queued ICE candidate:", error.message); } } peerConnection.onicegatheringstatechange = () => { if (peerConnection.iceGatheringState === 'complete') { console.log('ICE Gathering Complete (Answer).'); answerSdpOutput.value = JSON.stringify(peerConnection.localDescription); setStatus('Answer Created. Copy and send back to User 1.', 'status-info'); createAnswerBtn.disabled = true; } }; } catch (error) { console.error("Error processing offer/creating answer:", error); setStatus('Error creating answer. Check Offer format & console.', 'status-disconnected'); resetConnection(); } }
+        async function setAnswerFlow() { /* ... same ... */ if (!peerConnection) { alert("User 1 needs to 'Create Offer' first!"); return; } const answerData = answerSdpInput.value.trim(); if (!answerData) { alert("Paste User 2's Answer SDP first!"); return; } setStatus('Setting Answer & Connecting...', 'status-connecting'); createOfferBtn.disabled = true; createAnswerBtn.disabled = true; setAnswerBtn.disabled = true; try { const answer = JSON.parse(answerData); await peerConnection.setRemoteDescription(new RTCSessionDescription(answer)); console.log("Remote description (answer) set."); console.log("Processing queued ICE candidates after setting answer:", iceCandidatesQueue.length); while(iceCandidatesQueue.length > 0) { const candidate = iceCandidatesQueue.shift(); try { if (candidate) { await peerConnection.addIceCandidate(candidate); console.log("Queued ICE Candidate Added"); } } catch (error) { if (candidate) console.warn("Error adding queued ICE candidate:", error.message); } } } catch (error) { console.error("Error setting remote description (answer):", error); setStatus('Error setting answer. Check format & console.', 'status-disconnected'); resetConnection(); } }
+
+        // --- Core WebRTC Functions ---
+        // (createPeerConnection - Same as previous version)
+        function createPeerConnection(isInitiator) { /* ... same ... */ if (peerConnection) { console.warn("PeerConnection already exists. Resetting."); resetConnection(); } console.log('Creating Peer Connection. Initiator:', isInitiator); iceCandidatesQueue = []; try { peerConnection = new RTCPeerConnection({ iceServers: [{ urls: STUN_SERVER }] }); peerConnection.onicecandidate = event => { if (event.candidate) { console.log("Generated ICE candidate, queuing (or adding if possible)"); if(peerConnection && peerConnection.remoteDescription) { peerConnection.addIceCandidate(event.candidate).then(() => console.log("ICE Candidate Added immediately")).catch(e => { console.warn("Failed to add candidate immediately, queuing:", e.message); iceCandidatesQueue.push(event.candidate); }); } else { iceCandidatesQueue.push(event.candidate); } } else { console.log("ICE Gathering State Change:", peerConnection.iceGatheringState); } }; peerConnection.oniceconnectionstatechange = () => { const state = peerConnection.iceConnectionState; console.log(`ICE Connection State: ${state}`); switch (state) { case 'checking': setStatus('P2P Connecting...', 'status-connecting'); break; case 'connected': case 'completed': setStatus('P2P Connected! Waiting for Data Channel...', 'status-connected'); break; case 'disconnected': setStatus(`P2P Disconnected. Attempting to reconnect...`, 'status-connecting'); displaySystemMessage(`P2P Connection momentarily lost.`); break; case 'failed': setStatus(`P2P Connection Failed.`, 'status-disconnected'); displaySystemMessage(`P2P Connection Failed.`); resetConnection(); break; case 'closed': setStatus(`P2P Connection Closed.`, 'status-disconnected'); if (manualConnectionDiv.style.display !== 'block') { displaySystemMessage(`P2P Connection Closed.`); } resetConnection(); break; default: setStatus(`P2P Status: ${state}`, 'status-info'); break; } }; if (isInitiator) { console.log('Creating Data Channel (Initiator)'); dataChannel = peerConnection.createDataChannel("chatChannel", { ordered: true }); setupDataChannel(); } else { console.log('Setting up Data Channel listener (Joiner)'); peerConnection.ondatachannel = event => { console.log('Data channel received (Joiner)'); dataChannel = event.channel; setupDataChannel(); }; } } catch (error) { console.error("Error creating PeerConnection:", error); setStatus('Error creating P2P connection.', 'status-disconnected'); } }
+
+        // --- Data Channel Setup ---
+        // (setupDataChannel - Same as previous version, including onmessage modification)
+        function setupDataChannel() { /* ... same ... */ if (!dataChannel) return; dataChannel.onopen = () => { console.log('Data channel OPEN'); setStatus('P2P Connected & Data Channel Open!', 'status-connected'); manualConnectionDiv.style.display = 'none'; chatAreaDiv.style.display = 'flex'; enableChat(true); displaySystemMessage("Chat connection established!"); console.log("Processing queued candidates on data channel open:", iceCandidatesQueue.length); while(iceCandidatesQueue.length > 0) { const candidate = iceCandidatesQueue.shift(); try { if (candidate && peerConnection) { peerConnection.addIceCandidate(candidate).then(() => console.log("Queued ICE Candidate Added on open")).catch(e => console.warn("Error adding queued candidate on open:", e.message)); } } catch (error) { if (candidate) console.warn("Exception adding queued candidate on open:", error.message); } } }; dataChannel.onclose = () => { console.log('Data channel CLOSED'); if (statusDiv.className !== 'status-disconnected') { displaySystemMessage("Data channel closed."); } }; dataChannel.onerror = error => { console.error('Data channel error:', error); displaySystemMessage(`Chat channel error: ${error.message || 'Unknown error'}`); }; dataChannel.onmessage = event => { console.log('Raw message received:', event.data); try { const data = JSON.parse(event.data); displayMessage(data, REMOTE_COLOR_CLASS); } catch (error) { console.error("Failed to parse incoming message:", error); } }; }
+
+        // --- Reset Connection ---
+        // (resetConnection - Same as previous version)
+        function resetConnection() { /* ... same ... */ console.log("Resetting connection state"); enableChat(false); manualConnectionDiv.style.display = 'block'; chatAreaDiv.style.display = 'none'; if (dataChannel) { dataChannel.onopen = null; dataChannel.onclose = null; dataChannel.onerror = null; dataChannel.onmessage = null; if (dataChannel.readyState !== 'closed') dataChannel.close(); dataChannel = null; } if (peerConnection) { peerConnection.onicecandidate = null; peerConnection.oniceconnectionstatechange = null; peerConnection.onicegatheringstatechange = null; peerConnection.ondatachannel = null; if (peerConnection.connectionState !== 'closed') peerConnection.close(); peerConnection = null; } createOfferBtn.disabled = false; createAnswerBtn.disabled = false; setAnswerBtn.disabled = false; offerSdpOutput.value = ''; offerSdpInput.value = ''; answerSdpOutput.value = ''; answerSdpInput.value = ''; iceCandidatesQueue = []; currentLocalSpeechBubble = null; currentRemoteSpeechBubble = null; setStatus('Disconnected. Follow steps below.', 'status-disconnected'); }
+
+
+        // --- Speech Recognition Functions ---
+        // (initSpeechRecognition, startSpeech, stopSpeech - Same as previous version)
+        function initSpeechRecognition() { /* ... same ... */ if (!SpeechRecognition) return false; try { speechRecognition = new SpeechRecognition(); speechRecognition.continuous = true; speechRecognition.interimResults = true; speechRecognition.lang = 'en-US'; speechRecognition.onstart = () => { isRecognizing = true; speechStatusDiv.textContent = "Listening..."; startSpeechBtn.disabled = true; stopSpeechBtn.disabled = false; }; speechRecognition.onend = () => { isRecognizing = false; speechStatusDiv.textContent = "Speech inactive."; startSpeechBtn.disabled = !(dataChannel && dataChannel.readyState === 'open'); stopSpeechBtn.disabled = true; if (currentLocalSpeechBubble) { currentLocalSpeechBubble.classList.remove('interim'); currentLocalSpeechBubble = null; } }; speechRecognition.onerror = (event) => { isRecognizing = false; console.error('Speech recognition error:', event.error, event.message); speechStatusDiv.textContent = `Error: ${event.error}`; startSpeechBtn.disabled = !(dataChannel && dataChannel.readyState === 'open'); stopSpeechBtn.disabled = true; if (currentLocalSpeechBubble) { currentLocalSpeechBubble.classList.remove('interim'); currentLocalSpeechBubble = null; } }; speechRecognition.onresult = (event) => { let interimTranscript = ''; let finalTranscript = ''; for (let i = event.resultIndex; i < event.results.length; ++i) { if (event.results[i].isFinal) { finalTranscript += event.results[i][0].transcript; } else { interimTranscript += event.results[i][0].transcript; } } if (interimTranscript) { const payload = { type: 'speech', status: 'interim', text: interimTranscript }; displayMessage(payload, LOCAL_COLOR_CLASS); sendMessage(payload); } if (finalTranscript) { console.log('Final transcript:', finalTranscript); const payload = { type: 'speech', status: 'final', text: finalTranscript.trim() }; displayMessage(payload, LOCAL_COLOR_CLASS); sendMessage(payload); currentLocalSpeechBubble = null; } }; return true; } catch (error) { console.error("Error initializing SpeechRecognition:", error); speechStatusDiv.textContent = "Speech init failed."; return false; } }
+        function startSpeech() { /* ... same ... */ if (!speechRecognition && !initSpeechRecognition()) { alert("Speech Recognition not available or failed to initialize."); return; } if (isRecognizing || !dataChannel || dataChannel.readyState !== 'open') return; try { speechRecognition.start(); } catch (error) { console.error("Error starting speech recognition:", error); speechStatusDiv.textContent = "Error starting speech."; isRecognizing = false; startSpeechBtn.disabled = !(dataChannel && dataChannel.readyState === 'open'); stopSpeechBtn.disabled = true; } }
+        function stopSpeech() { /* ... same ... */ if (!isRecognizing || !speechRecognition) return; try { speechRecognition.stop(); } catch (error) { console.error("Error stopping speech recognition:", error); isRecognizing = false; speechStatusDiv.textContent = "Error stopping."; startSpeechBtn.disabled = !(dataChannel && dataChannel.readyState === 'open'); stopSpeechBtn.disabled = true; if (currentLocalSpeechBubble) { currentLocalSpeechBubble.classList.remove('interim'); currentLocalSpeechBubble = null; } } }
+
+
+        // --- Messaging Functions ---
+        // (sendTextMessage, sendMessage - Same as previous version)
+         function sendTextMessage() { /* ... same ... */ const text = textInput.value.trim(); if (text) { const payload = { type: 'text', status: 'final', text: text }; sendMessage(payload); displayMessage(payload, LOCAL_COLOR_CLASS); textInput.value = ''; } }
+         function sendMessage(payload) { /* ... same ... */ if (dataChannel && dataChannel.readyState === 'open') { try { const messageString = JSON.stringify(payload); dataChannel.send(messageString); } catch (error) { console.error("Error sending message:", error); displaySystemMessage(`Error sending message: ${error.message}`); } } else { console.warn("Cannot send message, data channel not open or ready."); displaySystemMessage("Cannot send: Not connected!"); } }
+
+        // *** UPDATED displayMessage FUNCTION ***
+        function displayMessage(payload, className) {
+            const isLocal = (className === LOCAL_COLOR_CLASS);
+            const isInterim = payload.status === 'interim';
+            const isSpeech = payload.type === 'speech';
+            const text = payload.text;
+
+            // Ignore empty interim messages, but allow empty final messages if needed (though unlikely)
+            if (!text && isInterim) return;
+
+            const lastBubble = chatbox.lastElementChild;
+            let targetBubble = null; // The bubble we will modify or null to create new
+            let needsNewBubble = true;
+            const currentBubbleRef = isLocal ? currentLocalSpeechBubble : currentRemoteSpeechBubble;
+
+            // --- Logic for Speech Messages ---
+            if (isSpeech) {
+                if (currentBubbleRef && currentBubbleRef.parentElement === chatbox) {
+                    // Update existing interim bubble (for both interim and final speech updates)
+                    targetBubble = currentBubbleRef;
+                    needsNewBubble = false;
+                    console.log('Updating speech bubble');
+                } else {
+                    // Need a new bubble if no current ref exists or it's gone
+                    needsNewBubble = true;
+                    console.log('Need new speech bubble');
+                    // Clear the ref if it was invalid
+                    if (isLocal) currentLocalSpeechBubble = null; else currentRemoteSpeechBubble = null;
+                }
+            }
+            // --- Logic for Text Message Consolidation ---
+            else if (!isInterim) { // Only consolidate final text messages
+                 if (lastBubble && lastBubble.classList.contains(className) && !lastBubble.classList.contains('interim') && !lastBubble.classList.contains(SYSTEM_COLOR_CLASS)) {
+                     targetBubble = lastBubble;
+                     needsNewBubble = false;
+                     console.log('Consolidating text message');
+                 }
+            }
+
+            // --- Perform Update or Create New ---
+            if (!needsNewBubble && targetBubble) {
+                // --- Update Existing Bubble ---
+                const contentSpan = targetBubble.querySelector('.content');
+                const metaSpan = targetBubble.querySelector('.meta');
+                const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                if (isSpeech) {
+                     // Replace content for both interim and final speech updates
+                     setTextContent(contentSpan, text);
+                     if (isInterim) {
+                         targetBubble.classList.add('interim');
+                     } else {
+                         // Final speech result - remove interim style and clear ref
+                         targetBubble.classList.remove('interim');
+                         if (isLocal) currentLocalSpeechBubble = null; else currentRemoteSpeechBubble = null;
+                         console.log('Finalized speech bubble');
+                     }
+                } else { // Must be final text consolidation
+                    if (contentSpan.innerHTML.trim() !== '') {
+                        contentSpan.innerHTML += MESSAGE_SEPARATOR;
+                    }
+                    contentSpan.innerHTML += getSanitizedHTML(text);
+                    // Ensure interim class is removed if somehow present
+                    targetBubble.classList.remove('interim');
+                    // Clear the *other* user's interim bubble when consolidating text
+                    if (isLocal && currentRemoteSpeechBubble) { currentRemoteSpeechBubble.classList.remove('interim'); currentRemoteSpeechBubble = null; }
+                    if (!isLocal && currentLocalSpeechBubble) { currentLocalSpeechBubble.classList.remove('interim'); currentLocalSpeechBubble = null; }
+                }
+                 // Update timestamp for all updates
+                setTextContent(metaSpan, timestamp);
+
+            } else {
+                 // --- Create New Bubble ---
+                 console.log('Creating new bubble');
+                 const messageDiv = document.createElement('div');
+                 messageDiv.classList.add('message', className);
+                 if (isInterim) {
+                    messageDiv.classList.add('interim');
+                 }
+
+                 const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                 messageDiv.innerHTML = `<span class="content">${getSanitizedHTML(text)}</span><span class="meta">${timestamp}</span>`;
+
+                 chatbox.appendChild(messageDiv);
+                 targetBubble = messageDiv; // This is our new target bubble
+
+                 // Store reference ONLY if it's a new interim speech bubble
+                 if (isInterim && isSpeech) {
+                    if (isLocal) currentLocalSpeechBubble = targetBubble;
+                    else currentRemoteSpeechBubble = targetBubble;
+                    console.log('Stored new interim bubble ref');
+                 }
+                 // If a non-interim message arrives, clear the *other* user's interim bubble ref
+                 else if (!isInterim) {
+                    if (isLocal && currentRemoteSpeechBubble) { currentRemoteSpeechBubble.classList.remove('interim'); currentRemoteSpeechBubble = null; }
+                    if (!isLocal && currentLocalSpeechBubble) { currentLocalSpeechBubble.classList.remove('interim'); currentLocalSpeechBubble = null; }
+                 }
+            }
+
+            // Scroll to bottom
+            if (chatbox.scrollHeight - chatbox.scrollTop < chatbox.clientHeight + 150) {
+                 chatbox.scrollTo({ top: chatbox.scrollHeight, behavior: 'smooth' });
+            }
+        }
+
+        // (Helper functions: setTextContent, getSanitizedHTML - Same as before)
+        function setTextContent(element, text) { if (element) { element.textContent = text; } }
+        function getSanitizedHTML(text) { const tempDiv = document.createElement('div'); tempDiv.textContent = text; return tempDiv.innerHTML; }
+        // (displaySystemMessage - Same as before)
+        function displaySystemMessage(text) { const messageDiv = document.createElement('div'); messageDiv.classList.add('message', SYSTEM_COLOR_CLASS); messageDiv.innerHTML = `<span class="content">${getSanitizedHTML(text)}</span>`; chatbox.appendChild(messageDiv); console.log("System:", text); if (chatbox.scrollHeight - chatbox.scrollTop < chatbox.clientHeight + 100) { chatbox.scrollTo({ top: chatbox.scrollHeight, behavior: 'smooth' }); } if (currentLocalSpeechBubble) { currentLocalSpeechBubble.classList.remove('interim'); currentLocalSpeechBubble = null; } if (currentRemoteSpeechBubble) { currentRemoteSpeechBubble.classList.remove('interim'); currentRemoteSpeechBubble = null; } }
+        // (enableChat, setStatus - Same as before)
+        function enableChat(enable) { textInput.disabled = !enable; sendTextBtn.disabled = !enable; startSpeechBtn.disabled = !enable || !SpeechRecognition; stopSpeechBtn.disabled = true; if (!enable && isRecognizing) stopSpeech(); }
+        function setStatus(text, className) { statusDiv.textContent = `Status: ${text}`; statusDiv.className = className; }
+
+    </script>
+
+</body>
+</html>
